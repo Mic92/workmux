@@ -461,7 +461,7 @@ pub fn navigate_to_target_and_close(
         // 4. Delete trash
         cmds.push(format!("rm -rf {} >/dev/null 2>&1", trash));
 
-        format!("; {}", cmds.join("; "))
+        cmds.join("; ")
     }
 
     // Check if target window exists
@@ -471,6 +471,15 @@ pub fn navigate_to_target_and_close(
     } else {
         false
     };
+
+    // Use the actual window name from window_to_close_later when available (includes -N suffix),
+    // otherwise fall back to the base prefixed name
+    let source_full = cleanup_result
+        .window_to_close_later
+        .clone()
+        .unwrap_or_else(|| prefixed(prefix, source_handle));
+    let target_full = prefixed(prefix, target_window_name);
+
     debug!(
         prefix = prefix,
         target_window_name = target_window_name,
@@ -481,75 +490,9 @@ pub fn navigate_to_target_and_close(
         "navigate_to_target_and_close:entry"
     );
 
-    // Prepare escaped window names for tmux commands
-    // Use the actual window name from window_to_close_later when available (includes -N suffix),
-    // otherwise fall back to the base prefixed name
-    let source_full = cleanup_result
-        .window_to_close_later
-        .clone()
-        .unwrap_or_else(|| prefixed(prefix, source_handle));
-    let target_full = prefixed(prefix, target_window_name);
-
-    // Get current session name for tmux targeting.
-    // tmux run-shell doesn't inherit the session context, so we must include
-    // the session name explicitly in targets: "session:=window_name"
-    let session = mux.current_session().unwrap_or_default();
-    let session_prefix = if session.is_empty() {
-        String::new()
-    } else {
-        format!("{}:", session)
-    };
-
-    let source_escaped = shell_escape(&format!("{}={}", session_prefix, source_full));
-    let target_escaped = shell_escape(&format!("{}={}", session_prefix, target_full));
-
-    if !mux_running || !target_exists {
-        // If target window doesn't exist, still need to close source window if running inside it
-        if let Some(ref window_to_close) = cleanup_result.window_to_close_later {
-            let delay = Duration::from_millis(WINDOW_CLOSE_DELAY_MS);
-            let delay_secs = format!("{:.3}", delay.as_secs_f64());
-
-            // Build cleanup script: prefer full deferred cleanup, fall back to trash-only
-            let cleanup_script = if let Some(ref dc) = cleanup_result.deferred_cleanup {
-                build_deferred_cleanup_script(dc)
-            } else {
-                cleanup_result
-                    .trash_path_to_delete
-                    .as_ref()
-                    .map(|tp| format!("; rm -rf {}", shell_escape(&tp.to_string_lossy())))
-                    .unwrap_or_default()
-            };
-
-            let script = format!(
-                "sleep {delay}; tmux kill-window -t {source} >/dev/null 2>&1{cleanup}",
-                delay = delay_secs,
-                source = source_escaped,
-                cleanup = cleanup_script,
-            );
-            debug!(
-                script = script,
-                "navigate_to_target_and_close:kill_only_script"
-            );
-            match mux.run_deferred_script(&script) {
-                Ok(_) => info!(
-                    window = window_to_close,
-                    script = script,
-                    "cleanup:scheduled window close"
-                ),
-                Err(e) => warn!(
-                    window = window_to_close,
-                    error = ?e,
-                    "cleanup:failed to schedule window close",
-                ),
-            }
-        }
-        return Ok(());
-    }
-
-    if cleanup_result.window_to_close_later.is_some() {
-        // Running inside a matching window: schedule navigation and kill together
+    // If we're running inside the window being deleted, use deferred cleanup
+    if let Some(ref _window_to_close) = cleanup_result.window_to_close_later {
         let delay = Duration::from_millis(WINDOW_CLOSE_DELAY_MS);
-        let delay_secs = format!("{:.3}", delay.as_secs_f64());
 
         // Build cleanup script: prefer full deferred cleanup, fall back to trash-only
         let cleanup_script = if let Some(ref dc) = cleanup_result.deferred_cleanup {
@@ -558,35 +501,31 @@ pub fn navigate_to_target_and_close(
             cleanup_result
                 .trash_path_to_delete
                 .as_ref()
-                .map(|tp| format!("; rm -rf {}", shell_escape(&tp.to_string_lossy())))
+                .map(|tp| format!("rm -rf {}", shell_escape(&tp.to_string_lossy())))
                 .unwrap_or_default()
         };
 
-        let script = format!(
-            "sleep {delay}; tmux select-window -t {target} >/dev/null 2>&1; tmux kill-window -t {source} >/dev/null 2>&1{cleanup}",
-            delay = delay_secs,
-            target = target_escaped,
-            source = source_escaped,
-            cleanup = cleanup_script,
-        );
-        debug!(
-            script = script,
-            "navigate_to_target_and_close:nav_and_kill_script"
-        );
+        // Determine target window (only if it exists)
+        let target = if mux_running && target_exists {
+            Some(target_full.as_str())
+        } else {
+            None
+        };
 
-        match mux.run_deferred_script(&script) {
+        // Delegate to the multiplexer backend
+        match mux.schedule_cleanup_and_close(&source_full, target, &cleanup_script, delay) {
             Ok(_) => info!(
                 source = source_handle,
-                target = target_window_name,
-                "cleanup:scheduled navigation to target and window close"
+                target = ?target_window_name,
+                "cleanup:scheduled navigation, close, and deferred cleanup"
             ),
             Err(e) => warn!(
                 source = source_handle,
                 error = ?e,
-                "cleanup:failed to schedule navigation and window close",
+                "cleanup:failed to schedule cleanup and close"
             ),
         }
-    } else if !cleanup_result.tmux_window_killed {
+    } else if !cleanup_result.tmux_window_killed && mux_running && target_exists {
         // Running outside and windows weren't killed yet (shouldn't happen normally)
         // but handle it for completeness
         mux.select_window(prefix, target_window_name)?;
