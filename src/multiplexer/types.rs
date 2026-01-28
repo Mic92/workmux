@@ -76,6 +76,8 @@ pub enum BackendType {
     Tmux,
     /// WezTerm backend
     WezTerm,
+    /// Zellij backend
+    Zellij,
 }
 
 impl std::fmt::Display for BackendType {
@@ -83,6 +85,7 @@ impl std::fmt::Display for BackendType {
         match self {
             BackendType::Tmux => write!(f, "tmux"),
             BackendType::WezTerm => write!(f, "wezterm"),
+            BackendType::Zellij => write!(f, "zellij"),
         }
     }
 }
@@ -94,6 +97,7 @@ impl std::str::FromStr for BackendType {
         match s.to_lowercase().as_str() {
             "tmux" => Ok(BackendType::Tmux),
             "wezterm" => Ok(BackendType::WezTerm),
+            "zellij" => Ok(BackendType::Zellij),
             other => Err(format!("unknown backend: {}", other)),
         }
     }

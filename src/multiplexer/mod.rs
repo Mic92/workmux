@@ -9,6 +9,7 @@ pub mod tmux;
 pub mod types;
 pub mod util;
 pub mod wezterm;
+pub mod zellij;
 
 use anyhow::{Result, anyhow};
 use std::collections::HashSet;
@@ -319,11 +320,16 @@ pub trait Multiplexer: Send + Sync {
 /// Detect which backend to use based on environment.
 ///
 /// Auto-detects from multiplexer environment variables:
+/// - `$ZELLIJ` set → Zellij
 /// - `$WEZTERM_PANE` set → WezTerm
 /// - `$TMUX` set → tmux
 /// - Neither → defaults to tmux (for backward compatibility)
 pub fn detect_backend() -> BackendType {
     // Auto-detect from environment
+    if std::env::var("ZELLIJ").is_ok() {
+        return BackendType::Zellij;
+    }
+
     if std::env::var("WEZTERM_PANE").is_ok() {
         return BackendType::WezTerm;
     }
@@ -341,5 +347,6 @@ pub fn create_backend(backend_type: BackendType) -> Arc<dyn Multiplexer> {
     match backend_type {
         BackendType::Tmux => Arc::new(TmuxBackend::new()),
         BackendType::WezTerm => Arc::new(wezterm::WezTermBackend::new()),
+        BackendType::Zellij => Arc::new(zellij::ZellijBackend::new()),
     }
 }
