@@ -69,6 +69,31 @@ impl ZellijBackend {
         Ok(output.lines().map(|s| s.trim().to_string()).collect())
     }
 
+    /// Get the name of the currently focused tab by parsing dump-layout output.
+    fn focused_tab_name() -> Option<String> {
+        let output = Cmd::new("zellij")
+            .args(&["action", "dump-layout"])
+            .run_and_capture_stdout()
+            .ok()?;
+
+        // Parse: tab name="TabName" focus=true
+        // The focused tab has focus=true in its attributes
+        for line in output.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("tab ") && trimmed.contains("focus=true") {
+                // Extract name="..." from the line
+                if let Some(name_start) = trimmed.find("name=\"") {
+                    let after_name = &trimmed[name_start + 6..];
+                    if let Some(name_end) = after_name.find('"') {
+                        return Some(after_name[..name_end].to_string());
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     /// Parse `zellij action list-clients` output
     /// Format: "CLIENT_ID ZELLIJ_PANE_ID RUNNING_COMMAND\n1 terminal_3 vim file.txt"
     fn list_clients() -> Result<Vec<ClientInfo>> {
@@ -145,9 +170,6 @@ impl Multiplexer for ZellijBackend {
             debug!("Zellij does not support window insertion order - ignoring after_window");
         }
 
-        // Save current tab to return to if needed
-        let original_tab = std::env::var("ZELLIJ_TAB_NAME").ok();
-
         Cmd::new("zellij")
             .args(&[
                 "action", "new-tab", "--layout", "default", "--name", &full_name, "--cwd", cwd_str,
@@ -155,12 +177,7 @@ impl Multiplexer for ZellijBackend {
             .run()
             .with_context(|| format!("Failed to create zellij tab '{}'", full_name))?;
 
-        // Return to original tab (create_window should not change focus)
-        if let Some(orig) = original_tab {
-            let _ = Cmd::new("zellij")
-                .args(&["action", "go-to-tab-name", &orig])
-                .run();
-        }
+        // Stay on the new tab - pane setup expects focus on the new window
 
         Ok(full_name)
     }
@@ -220,7 +237,7 @@ impl Multiplexer for ZellijBackend {
     }
 
     fn current_window_name(&self) -> Result<Option<String>> {
-        Ok(std::env::var("ZELLIJ_TAB_NAME").ok())
+        Ok(Self::focused_tab_name())
     }
 
     fn get_all_window_names(&self) -> Result<HashSet<String>> {
@@ -510,7 +527,7 @@ impl Multiplexer for ZellijBackend {
                     working_dir: PathBuf::new(), // Not available
                     title: None,
                     session: Self::session_name(),
-                    window: std::env::var("ZELLIJ_TAB_NAME").ok(),
+                    window: Self::focused_tab_name(),
                 }));
             }
         }
@@ -532,9 +549,8 @@ impl Multiplexer for ZellijBackend {
 
         let delay_secs = delay.as_secs_f64();
 
-        // Build a robust shell script that survives the window closing
-        // trap '' HUP ensures the script continues even when the PTY is destroyed
-        let mut script = format!("trap '' HUP; sleep {:.1};", delay_secs);
+        // Build the cleanup script
+        let mut script = format!("sleep {:.1};", delay_secs);
 
         // 1. Navigate to target (if exists)
         if let Some(target) = target_window {
@@ -560,9 +576,19 @@ impl Multiplexer for ZellijBackend {
 
         debug!(script = script, "zellij:scheduling cleanup and close");
 
-        // Spawn detached background process
+        // Spawn as fully detached background process using nohup
+        // - Redirect stdin from /dev/null for proper detachment
+        // - Run from root dir to avoid holding a lock on the directory being deleted
+        // - Remove ZELLIJ_PANE_ID to avoid confusing zellij CLI
+        let full_cmd = format!(
+            "nohup sh -c {} </dev/null >/dev/null 2>&1 &",
+            shell_escape(&script)
+        );
+
         std::process::Command::new("sh")
-            .args(["-c", &script])
+            .args(["-c", &full_cmd])
+            .current_dir("/")
+            .env_remove("ZELLIJ_PANE_ID")
             .spawn()
             .context("Failed to spawn cleanup process")?;
 
