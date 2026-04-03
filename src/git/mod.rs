@@ -1,5 +1,6 @@
 mod branch;
 mod cache;
+mod lock;
 mod merge;
 mod remote;
 mod repo;
@@ -9,6 +10,7 @@ mod worktree;
 
 pub use branch::*;
 pub use cache::*;
+pub use lock::*;
 pub use merge::*;
 pub use remote::*;
 pub use repo::*;
