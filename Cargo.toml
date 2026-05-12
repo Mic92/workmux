@@ -59,7 +59,7 @@ notify-rust = "4"
 libc = "0.2"
 ctrlc = "3.5"
 base64 = "0.22"
-nix = { version = "0.31.2", features = ["fs"] }
+nix = { version = "0.31.3", features = ["fs"] }
 tempfile = "3.27"
 getrandom = "0.4.2"
 similar = "3"
@@ -73,7 +73,7 @@ ignore = "0.4"
 mac-notification-sys = "0.6"
 
 [dev-dependencies]
-filetime = "0.2.27"
+filetime = "0.2.28"
 
 [patch.crates-io]
 crossterm = { git = "https://github.com/raine/crossterm" }
