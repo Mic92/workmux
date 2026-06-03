@@ -43,7 +43,7 @@ tracing-appender = "0.2"
 edit = "0.1"
 which = "8.0"
 minijinja = "2.20"
-tabled = { version = "0.20", features = ["ansi"] }
+tabled = { version = "0.21", features = ["ansi"] }
 git-url-parse = "0.6.0"
 shlex = "2.0"
 slug = "0.1"
