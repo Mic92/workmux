@@ -58,7 +58,7 @@ ansi-to-tui = "8"
 notify-rust = "4"
 libc = "0.2"
 ctrlc = "3.5"
-base64 = "0.22"
+base64 = "0.23"
 nix = { version = "0.31.3", features = ["fs"] }
 tempfile = "3.27"
 getrandom = "0.4.2"
