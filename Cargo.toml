@@ -42,7 +42,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"]
 tracing-appender = "0.2"
 edit = "0.1"
 which = "8.0"
-minijinja = "2.20"
+minijinja = "3.1"
 tabled = { version = "0.22", features = ["ansi"] }
 git-url-parse = "0.6.0"
 shlex = "2.0"
@@ -59,7 +59,7 @@ notify-rust = "4"
 libc = "0.2"
 ctrlc = "3.5"
 base64 = "0.23"
-nix = { version = "0.31.3", features = ["fs"] }
+nix = { version = "0.32.0", features = ["fs"] }
 tempfile = "3.27"
 getrandom = "0.4.2"
 similar = "3"
